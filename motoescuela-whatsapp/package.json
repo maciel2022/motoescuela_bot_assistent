@@ -7,7 +7,7 @@
     "test": "test"
   },
   "scripts": {
-    "test": "MYSQL_DATABASE=motoescuela_test node --test",
+    "test": "MYSQL_DATABASE=motoescuela_test node --test --test-concurrency=1",
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:setup": "node src/db/migrate.js",

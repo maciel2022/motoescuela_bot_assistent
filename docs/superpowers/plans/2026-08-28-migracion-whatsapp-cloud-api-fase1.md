@@ -109,12 +109,14 @@ npm pkg set type=module
 npm pkg set engines.node=">=22"
 npm pkg set scripts.start="node src/server.js"
 npm pkg set scripts.dev="node --watch src/server.js"
-npm pkg set scripts.test="MYSQL_DATABASE=motoescuela_test node --test"
+npm pkg set scripts.test="MYSQL_DATABASE=motoescuela_test node --test --test-concurrency=1"
 npm pkg set scripts.db:setup="node src/db/migrate.js"
 npm pkg set "scripts.db:setup:test"="MYSQL_DATABASE=motoescuela_test node src/db/migrate.js"
 npm install express mysql2 openai dotenv
 npm install --save-dev supertest
 ```
+
+Por qué `--test-concurrency=1`: el test runner de Node ejecuta los archivos de test **en paralelo** por defecto, y todos los archivos comparten la misma base `motoescuela_test`. Sin esta bandera, el `TRUNCATE` de un archivo borra las filas que otro archivo está usando en ese momento, y los tests fallan de forma intermitente y desconcertante (un test que pasaba empieza a fallar sin que lo hayas tocado).
 
 Por qué el script `test` lleva el prefijo `MYSQL_DATABASE=motoescuela_test`: `config.js` carga el `.env` con `dotenv`, y **dotenv no pisa variables que ya existen en el entorno**. Por eso la variable puesta en la línea de comandos gana sobre la del `.env`, y los tests quedan aislados de la base de desarrollo sin necesidad de un segundo archivo de configuración.
 
