@@ -12,6 +12,17 @@ const DIR_MIGRACIONES = path.join(path.dirname(fileURLToPath(import.meta.url)), 
  * Registra cada archivo aplicado en schema_migrations para no repetirlo.
  */
 export async function migrar() {
+  // El nombre de la base es lo único que se interpola en SQL en todo el
+  // proyecto (CREATE DATABASE no admite placeholders). Viene de configuración,
+  // no de usuarios, pero se valida igual: un backtick ahí escaparía de las
+  // comillas y convertiría un error de .env en una inyección.
+  if (!/^[A-Za-z0-9_]+$/.test(config.mysql.database)) {
+    throw new Error(
+      `Nombre de base de datos inválido: "${config.mysql.database}". ` +
+        `Solo se permiten letras, números y guion bajo.`
+    )
+  }
+
   // Conexión SIN base seleccionada, para poder crearla.
   const raiz = await mysql.createConnection({
     host: config.mysql.host,
@@ -19,7 +30,9 @@ export async function migrar() {
     user: config.mysql.user,
     password: config.mysql.password,
     multipleStatements: false,
+    timezone: 'Z',
   })
+  await raiz.query("SET time_zone = '+00:00'")
 
   await raiz.query(
     `CREATE DATABASE IF NOT EXISTS \`${config.mysql.database}\` ` +
@@ -33,7 +46,10 @@ export async function migrar() {
     user: config.mysql.user,
     password: config.mysql.password,
     database: config.mysql.database,
+    timezone: 'Z',
   })
+  // Misma razón que en pool.js: el driver en UTC no alcanza, la sesión también.
+  await conn.query("SET time_zone = '+00:00'")
 
   await conn.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
