@@ -12,6 +12,22 @@ const REQUERIDAS = [
   'MYSQL_DATABASE',
 ]
 
+/**
+ * Convierte una variable numérica, fallando al arrancar si no lo es.
+ * El sentido de este archivo es que un .env mal escrito rompa acá y no en
+ * medio de una conversación con un usuario.
+ */
+function numero(env, clave, porDefecto) {
+  const crudo = env[clave]
+  if (crudo === undefined || String(crudo).trim() === '') return porDefecto
+
+  const valor = Number(crudo)
+  if (!Number.isFinite(valor) || valor <= 0) {
+    throw new Error(`La variable ${clave} debe ser un número positivo, y vale "${crudo}".`)
+  }
+  return valor
+}
+
 export function loadConfig(env) {
   const faltantes = REQUERIDAS.filter((k) => !env[k] || String(env[k]).trim() === '')
   if (faltantes.length > 0) {
@@ -22,7 +38,7 @@ export function loadConfig(env) {
   }
 
   const cfg = {
-    port: Number(env.PORT ?? 3000),
+    port: numero(env, 'PORT', 3000),
     whatsapp: Object.freeze({
       verifyToken: env.WHATSAPP_VERIFY_TOKEN,
       appSecret: env.WHATSAPP_APP_SECRET,
@@ -37,12 +53,12 @@ export function loadConfig(env) {
     }),
     mysql: Object.freeze({
       host: env.MYSQL_HOST,
-      port: Number(env.MYSQL_PORT ?? 3306),
+      port: numero(env, 'MYSQL_PORT', 3306),
       user: env.MYSQL_USER,
       password: env.MYSQL_PASSWORD ?? '',
       database: env.MYSQL_DATABASE,
     }),
-    historyLimit: Number(env.HISTORY_LIMIT ?? 10),
+    historyLimit: numero(env, 'HISTORY_LIMIT', 10),
     logLevel: env.LOG_LEVEL ?? 'info',
   }
 

@@ -47,16 +47,26 @@ export async function insertarSaliente(
 
 /**
  * Últimos N mensajes con texto, devueltos en orden cronológico ascendente.
- * El ORDER BY DESC + LIMIT toma los más recientes; el reverse() los deja
- * en el orden que espera el modelo.
+ *
+ * `excluirId` omite un mensaje puntual: el flujo persiste el mensaje entrante
+ * ANTES de leer el historial, así que la pregunta que se está respondiendo ya
+ * está en la base. Sin excluirla, aparecería dos veces en el input del modelo.
+ *
+ * Se ordena por `id` y no por `created_at` a propósito: TIMESTAMP no guarda
+ * fracciones de segundo, así que dos mensajes del mismo segundo empatarían y
+ * el orden del historial sería indeterminado.
  */
-export async function obtenerHistorial(conversationId, limite = 10, conn = pool) {
+export async function obtenerHistorial(conversationId, limite = 10, excluirId = null, conn = pool) {
+  // Un límite inválido produciría `LIMIT NaN` y rompería la consulta entera.
+  const tope = Math.max(1, Math.min(100, Math.trunc(Number(limite)) || 10))
+
   const [filas] = await conn.query(
     `SELECT direction, text FROM messages
      WHERE conversation_id = ? AND text IS NOT NULL AND text <> ''
+       AND (? IS NULL OR id <> ?)
      ORDER BY id DESC
      LIMIT ?`,
-    [conversationId, Number(limite)]
+    [conversationId, excluirId, excluirId, tope]
   )
   return filas.reverse()
 }

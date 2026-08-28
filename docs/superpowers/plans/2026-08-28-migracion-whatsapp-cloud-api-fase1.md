@@ -6,7 +6,7 @@
 
 **Architecture:** Servidor Express que expone un webhook. El webhook valida la firma HMAC de Meta, persiste el mensaje en MySQL y responde `200 OK` en milisegundos; el procesamiento lento (OpenAI + envío de respuesta) ocurre de forma asíncrona en el mismo proceso. La deduplicación de reintentos de Meta se resuelve con un índice único en `wa_message_id`. El historial de conversación vive en nuestra base, no en OpenAI.
 
-**Tech Stack:** Node 22 (ESM), Express 4, mysql2/promise, openai (SDK oficial), test runner nativo de Node (`node --test`), supertest, cloudflared para el túnel en desarrollo.
+**Tech Stack:** Node 22 (ESM), Express 5, mysql2/promise, openai (SDK oficial), test runner nativo de Node (`node --test`), supertest, cloudflared para el túnel en desarrollo.
 
 **Spec:** `docs/superpowers/specs/2026-08-28-migracion-whatsapp-cloud-api-design.md`
 
@@ -109,7 +109,7 @@ npm pkg set type=module
 npm pkg set engines.node=">=22"
 npm pkg set scripts.start="node src/server.js"
 npm pkg set scripts.dev="node --watch src/server.js"
-npm pkg set scripts.test="MYSQL_DATABASE=motoescuela_test node --test --test-concurrency=1"
+npm pkg set scripts.test="node --test --test-concurrency=1 --env-file=.env.test"
 npm pkg set scripts.db:setup="node src/db/migrate.js"
 npm pkg set "scripts.db:setup:test"="MYSQL_DATABASE=motoescuela_test node src/db/migrate.js"
 npm install express mysql2 openai dotenv
@@ -1709,7 +1709,7 @@ export function limpiarCitas(texto) {
 }
 ```
 
-⚠️ Detalle importante: si el historial ya termina con el mensaje actual del usuario (porque `handleMessage` lo persiste antes de leer el historial), la pregunta aparecería duplicada. Task 9 lo resuelve leyendo el historial **excluyendo** el mensaje actual. Ver la nota en esa tarea.
+⚠️ **Contrato de `construirInput`:** `historial` NO incluye la pregunta actual. `handleMessage` persiste el mensaje entrante antes de leer el historial, así que la pregunta ya está en la base; quien llama debe excluirla pasando `excluirId` a `obtenerHistorial` (ya implementado). Si el historial la incluyera, `construirInput` la agregaría de nuevo y el modelo vería el turno duplicado en cada request.
 
 - [ ] **Step 4: Escribir el test de `openai.js` (falla)**
 
@@ -1910,25 +1910,27 @@ Separa el trabajo en dos mitades: `ingest()` es rápido y ocurre antes del `200 
 
 **Regla clave:** `ingest()` persiste el mensaje entrante y **devuelve el `messageId`**; `procesar()` lee el historial **excluyendo ese id**, así la pregunta actual no aparece dos veces en el input del modelo.
 
-- [ ] **Step 1: Extender `obtenerHistorial` para poder excluir un mensaje**
+- [x] **Step 1: Extender `obtenerHistorial` para poder excluir un mensaje** — YA APLICADO
 
-Modificar `src/db/repos/messages.js` (creado en Task 6). Reemplazar la función `obtenerHistorial` por:
+Este paso se adelantó durante la revisión de las tareas 1-7: el revisor señaló que dejar la colisión latente hasta la Task 9 era arriesgado, porque `construirInput` volvería a agregar la pregunta y el modelo la vería duplicada en cada request. `src/db/repos/messages.js` ya tiene la firma con `excluirId` (y además acota el límite). La versión que quedó:
 
 ```js
 export async function obtenerHistorial(conversationId, limite = 10, excluirId = null, conn = pool) {
+  const tope = Math.max(1, Math.min(100, Math.trunc(Number(limite)) || 10))
+
   const [filas] = await conn.query(
     `SELECT direction, text FROM messages
      WHERE conversation_id = ? AND text IS NOT NULL AND text <> ''
        AND (? IS NULL OR id <> ?)
      ORDER BY id DESC
      LIMIT ?`,
-    [conversationId, excluirId, excluirId, Number(limite)]
+    [conversationId, excluirId, excluirId, tope]
   )
   return filas.reverse()
 }
 ```
 
-Los tests existentes de Task 6 la llaman con dos argumentos y siguen pasando, porque `excluirId` es `null` por defecto.
+Los tests de Task 6 la llaman con dos argumentos y siguen pasando, porque `excluirId` es `null` por defecto.
 
 - [ ] **Step 2: Escribir el test que falla**
 

@@ -101,3 +101,29 @@ test('marcarProcesado y marcarError cambian el estado', async () => {
   assert.equal(f2[0].status, 'error')
   assert.equal(f2[0].error_text, 'OpenAI timeout')
 })
+
+test('obtenerHistorial puede excluir el mensaje que se esta respondiendo', async () => {
+  // El flujo persiste el mensaje entrante ANTES de leer el historial, asi que
+  // la pregunta actual ya esta en la base. Sin excluirla aparece dos veces en
+  // el input del modelo: una en el historial y otra como pregunta.
+  await insertarEntrante(entrante('wamid.previo', 'pregunta previa'))
+  await insertarSaliente({ conversationId: conversacion.id, contactId: contacto.id, waMessageId: 'wamid.r1', text: 'respuesta previa' })
+  const actual = await insertarEntrante(entrante('wamid.actual', 'pregunta actual'))
+
+  const conExclusion = await obtenerHistorial(conversacion.id, 10, actual.id)
+  assert.deepEqual(conExclusion.map((m) => m.text), ['pregunta previa', 'respuesta previa'])
+
+  const sinExclusion = await obtenerHistorial(conversacion.id, 10)
+  assert.equal(sinExclusion.length, 3)
+})
+
+test('obtenerHistorial acota un limite invalido en vez de romper la consulta', async () => {
+  await insertarEntrante(entrante('wamid.lim', 'uno'))
+
+  // Un HISTORY_LIMIT mal escrito en .env pasaba la validacion de arranque y
+  // rompia TODAS las lecturas de historial en runtime con ER_SP_UNDECLARED_VAR.
+  for (const limite of [NaN, undefined, 'abc', 0, -5]) {
+    const h = await obtenerHistorial(conversacion.id, limite)
+    assert.ok(Array.isArray(h), `fallo con limite=${limite}`)
+  }
+})

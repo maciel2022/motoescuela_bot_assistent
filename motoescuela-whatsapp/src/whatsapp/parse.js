@@ -1,4 +1,16 @@
 /**
+ * Meta manda el timestamp como segundos en una cadena. Un valor ausente o
+ * basura daría `new Date(0)` (1970), que está por debajo del mínimo de un
+ * TIMESTAMP de MySQL: el INSERT fallaría, el webhook devolvería 500 y Meta
+ * reintentaría ese mensaje indefinidamente. Preferimos null.
+ */
+function instanteDe(valor) {
+  const segundos = Number(valor)
+  if (!Number.isFinite(segundos) || segundos <= 0) return null
+  return new Date(segundos * 1000)
+}
+
+/**
  * Convierte el payload del webhook de Meta en objetos propios.
  * Función pura: no toca red, base ni configuración.
  * Nunca lanza — un payload inesperado devuelve listas vacías.
@@ -30,7 +42,7 @@ export function parsearWebhook(payload) {
           profileName: nombrePorWaId.get(msg.from) ?? null,
           type: msg.type ?? 'unknown',
           text: msg.type === 'text' ? (msg.text?.body ?? null) : null,
-          timestamp: new Date(Number(msg.timestamp ?? 0) * 1000),
+          timestamp: instanteDe(msg.timestamp),
           raw: msg,
         })
       }

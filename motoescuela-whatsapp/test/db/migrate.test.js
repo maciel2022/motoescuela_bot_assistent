@@ -37,6 +37,22 @@ test('migrar crea las tres tablas y es idempotente', async () => {
   assert.deepEqual(segunda.aplicadas, [])
 })
 
+test('migrar registra cada archivo aplicado en schema_migrations', async () => {
+  // Sin esta asercion, SHOW TABLES pasaria con tablas que dejo una corrida
+  // anterior aunque migrar() fuese un no-op. Esto verifica el contrato real
+  // y, a diferencia de comprobar el valor devuelto, vale tanto en una base
+  // virgen como en una ya migrada.
+  await migrar()
+
+  const conn = await conectar()
+  const [filas] = await conn.query('SELECT filename FROM schema_migrations')
+  const registradas = filas.map((f) => f.filename)
+  await conn.end()
+
+  assert.ok(registradas.includes('001_init.sql'))
+  assert.ok(registradas.includes('002_conversacion_abierta_unica.sql'))
+})
+
 test('wa_message_id tiene indice unico', async () => {
   await migrar()
   const conn = await conectar()

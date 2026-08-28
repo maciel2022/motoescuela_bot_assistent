@@ -47,3 +47,21 @@ test('la configuración es inmutable', () => {
   const cfg = loadConfig(envCompleto)
   assert.throws(() => { cfg.port = 9999 }, TypeError)
 })
+
+test('loadConfig rechaza variables numericas invalidas al arrancar', () => {
+  // Fallar al arrancar es el punto de config.js. Un HISTORY_LIMIT o un PORT
+  // mal escritos pasaban la validacion y rompian en runtime.
+  for (const [clave, valor] of [['HISTORY_LIMIT', 'diez'], ['PORT', 'abc'], ['MYSQL_PORT', '?']]) {
+    assert.throws(
+      () => loadConfig({ ...envCompleto, [clave]: valor }),
+      new RegExp(clave),
+      `${clave}=${valor} deberia rechazarse`
+    )
+  }
+})
+
+test('loadConfig acepta valores numericos validos como cadena', () => {
+  const cfg = loadConfig({ ...envCompleto, HISTORY_LIMIT: '25', PORT: '8080' })
+  assert.equal(cfg.historyLimit, 25)
+  assert.equal(cfg.port, 8080)
+})

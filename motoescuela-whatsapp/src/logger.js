@@ -1,3 +1,5 @@
+import config from './config.js'
+
 const NIVELES = { debug: 10, info: 20, warn: 30, error: 40 }
 
 function crearLogger(nivelMinimo = 'info') {
@@ -24,4 +26,7 @@ function crearLogger(nivelMinimo = 'info') {
 }
 
 export { crearLogger }
-export default crearLogger(process.env.LOG_LEVEL ?? 'info')
+
+// El nivel sale de config y no de process.env: dos fuentes de verdad para el
+// mismo ajuste dejaban config.logLevel como codigo muerto.
+export default crearLogger(config.logLevel)

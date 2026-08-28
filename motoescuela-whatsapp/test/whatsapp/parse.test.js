@@ -54,3 +54,21 @@ test('guarda el objeto original del mensaje en raw', () => {
   const { mensajes } = parsearWebhook(fixture('webhook-audio'))
   assert.equal(mensajes[0].raw.audio.id, '999888777')
 })
+
+test('un timestamp ausente o invalido produce null, no una fecha imposible', () => {
+  // new Date(0) es 1970-01-01T00:00:00Z, un segundo por debajo del minimo de
+  // un TIMESTAMP de MySQL: en modo estricto el INSERT falla, el webhook
+  // devuelve 500 y Meta reintenta ese mensaje para siempre.
+  const armar = (timestamp) => ({
+    entry: [{ changes: [{ value: { messages: [{ from: '549223', id: 'wamid.X', type: 'text', text: { body: 'hola' }, ...(timestamp === undefined ? {} : { timestamp }) }] } }] }],
+  })
+
+  for (const malo of [undefined, null, '', 'no-es-un-numero', '0', '-5']) {
+    const { mensajes } = parsearWebhook(armar(malo))
+    assert.equal(mensajes.length, 1)
+    assert.equal(mensajes[0].timestamp, null, `timestamp=${JSON.stringify(malo)} deberia dar null`)
+  }
+
+  const { mensajes } = parsearWebhook(armar('1756400000'))
+  assert.equal(mensajes[0].timestamp.getTime(), 1756400000 * 1000)
+})
