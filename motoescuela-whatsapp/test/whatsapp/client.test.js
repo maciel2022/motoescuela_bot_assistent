@@ -97,3 +97,46 @@ test('enviarTexto corta el texto a 4096 caracteres (limite de WhatsApp)', async 
   await cliente.enviarTexto('549223', 'x'.repeat(5000))
   assert.equal(fetchImpl.llamadas[0].body.text.body.length, 4096)
 })
+
+test('un error de RED se reintenta igual que un 5xx', async () => {
+  // El fallo mas comun no es un 500 sino que fetch rechace: DNS caido,
+  // ECONNRESET, TLS. Si eso escapa del bucle, el reintento nunca ocurre
+  // justo en el caso para el que existe.
+  let llamadas = 0
+  const fetchImpl = async () => {
+    llamadas++
+    if (llamadas === 1) throw new TypeError('fetch failed')
+    return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.TRAS_RED' }] }) }
+  }
+
+  const cliente = crearClienteWhatsApp({ ...OPCIONES, fetchImpl })
+  const r = await cliente.enviarTexto('549223', 'Hola')
+
+  assert.equal(llamadas, 2)
+  assert.equal(r.waMessageId, 'wamid.TRAS_RED')
+})
+
+test('un error de red persistente lanza tras agotar los reintentos', async () => {
+  let llamadas = 0
+  const fetchImpl = async () => { llamadas++; throw new TypeError('fetch failed') }
+
+  const cliente = crearClienteWhatsApp({ ...OPCIONES, fetchImpl, reintentos: 2 })
+
+  await assert.rejects(() => cliente.enviarTexto('549223', 'Hola'), /fetch failed/)
+  assert.equal(llamadas, 3)
+})
+
+test('cada request lleva un AbortSignal para no colgarse indefinidamente', async () => {
+  const fetchImpl = fetchFalso([])
+  const cliente = crearClienteWhatsApp({ ...OPCIONES, fetchImpl })
+
+  await cliente.enviarTexto('549223', 'Hola')
+  const { signal } = fetchImpl.llamadas[0].opciones
+  assert.ok(signal instanceof AbortSignal, 'falta el signal de timeout')
+})
+
+test('marcarLeido tampoco lanza ante un error de red', async () => {
+  const fetchImpl = async () => { throw new TypeError('fetch failed') }
+  const cliente = crearClienteWhatsApp({ ...OPCIONES, fetchImpl, reintentos: 0 })
+  await cliente.marcarLeido('wamid.ABC') // no debe lanzar
+})
