@@ -1,0 +1,27 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "111111111111111",
+      "changes": [
+        {
+          "field": "messages",
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": { "display_phone_number": "15550001111", "phone_number_id": "222222222222222" },
+            "contacts": [{ "profile": { "name": "Maciel" }, "wa_id": "5492235042643" }],
+            "messages": [
+              {
+                "from": "5492235042643",
+                "id": "wamid.HBgNTQ5MjIzNTA0MjY0MxUCABIYIDNBMDAwMDAwMDAwMDAwMDAA",
+                "timestamp": "1756400000",
+                "type": "text",
+                "text": { "body": "Hola, que precio tiene la clase?" }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
