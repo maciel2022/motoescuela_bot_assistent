@@ -43,19 +43,20 @@ test('enviarTexto llama al endpoint correcto con el cuerpo correcto', async () =
   assert.equal(r.waMessageId, 'wamid.OUT')
 })
 
-test('enviarTexto reintenta ante un error 500 y termina bien', async () => {
+test('marcarLeido reintenta ante un error 500 y termina bien', async () => {
+  // Reintentar un 5xx solo es seguro cuando la operacion es idempotente.
+  // marcarLeido lo es; enviarTexto no (ver test/whatsapp/entrega.test.js).
   const fetchImpl = fetchFalso([
     { ok: false, status: 500, json: { error: { message: 'server error' } } },
-    { ok: true, status: 200, json: { messages: [{ id: 'wamid.SEGUNDO' }] } },
+    { ok: true, status: 200, json: {} },
   ])
   const cliente = crearClienteWhatsApp({ ...OPCIONES, fetchImpl })
 
-  const r = await cliente.enviarTexto('5492235042643', 'Hola!')
+  await cliente.marcarLeido('wamid.X')
   assert.equal(fetchImpl.llamadas.length, 2)
-  assert.equal(r.waMessageId, 'wamid.SEGUNDO')
 })
 
-test('enviarTexto lanza tras agotar los reintentos', async () => {
+test('marcarLeido agota los reintentos sin lanzar', async () => {
   const fetchImpl = fetchFalso([
     { ok: false, status: 500, json: { error: { message: 'a' } } },
     { ok: false, status: 500, json: { error: { message: 'b' } } },
@@ -63,7 +64,7 @@ test('enviarTexto lanza tras agotar los reintentos', async () => {
   ])
   const cliente = crearClienteWhatsApp({ ...OPCIONES, fetchImpl, reintentos: 2 })
 
-  await assert.rejects(() => cliente.enviarTexto('549223', 'Hola'), /Graph API/)
+  await cliente.marcarLeido('wamid.X') // no debe lanzar
   assert.equal(fetchImpl.llamadas.length, 3) // 1 intento + 2 reintentos
 })
 
@@ -98,14 +99,14 @@ test('enviarTexto corta el texto a 4096 caracteres (limite de WhatsApp)', async 
   assert.equal(fetchImpl.llamadas[0].body.text.body.length, 4096)
 })
 
-test('un error de RED se reintenta igual que un 5xx', async () => {
-  // El fallo mas comun no es un 500 sino que fetch rechace: DNS caido,
-  // ECONNRESET, TLS. Si eso escapa del bucle, el reintento nunca ocurre
-  // justo en el caso para el que existe.
+test('un error de red se reintenta cuando prueba que la request no salio', async () => {
+  // El fallo mas comun no es un 500 sino que fetch rechace. Un ECONNREFUSED
+  // prueba que nunca salio, asi que reintentar es seguro. Un ECONNRESET no
+  // lo prueba, y ese caso se cubre en entrega.test.js.
   let llamadas = 0
   const fetchImpl = async () => {
     llamadas++
-    if (llamadas === 1) throw new TypeError('fetch failed')
+    if (llamadas === 1) throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })
     return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.TRAS_RED' }] }) }
   }
 
@@ -116,13 +117,16 @@ test('un error de RED se reintenta igual que un 5xx', async () => {
   assert.equal(r.waMessageId, 'wamid.TRAS_RED')
 })
 
-test('un error de red persistente lanza tras agotar los reintentos', async () => {
+test('un ECONNREFUSED persistente lanza tras agotar los reintentos', async () => {
   let llamadas = 0
-  const fetchImpl = async () => { llamadas++; throw new TypeError('fetch failed') }
+  const fetchImpl = async () => {
+    llamadas++
+    throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })
+  }
 
   const cliente = crearClienteWhatsApp({ ...OPCIONES, fetchImpl, reintentos: 2 })
 
-  await assert.rejects(() => cliente.enviarTexto('549223', 'Hola'), /fetch failed/)
+  await assert.rejects(() => cliente.enviarTexto('549223', 'Hola'), /ECONNREFUSED/)
   assert.equal(llamadas, 3)
 })
 

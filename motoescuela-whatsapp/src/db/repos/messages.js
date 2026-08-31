@@ -48,25 +48,30 @@ export async function insertarSaliente(
 /**
  * Últimos N mensajes con texto, devueltos en orden cronológico ascendente.
  *
- * `excluirId` omite un mensaje puntual: el flujo persiste el mensaje entrante
- * ANTES de leer el historial, así que la pregunta que se está respondiendo ya
- * está en la base. Sin excluirla, aparecería dos veces en el input del modelo.
+ * `anteriorA` corta el historial justo antes del mensaje que se está
+ * respondiendo: el flujo lo persiste ANTES de leer el historial, así que la
+ * pregunta ya está en la base. Sin excluirla aparecería dos veces en el input.
+ *
+ * Es un corte (`id <`) y no una exclusión puntual (`id <>`) a propósito. En
+ * WhatsApp es normalísimo mandar dos mensajes seguidos: ambos entran y se
+ * procesan en paralelo, y con una exclusión puntual el primero vería al
+ * segundo presentado como contexto PREVIO, en orden invertido.
  *
  * Se ordena por `id` y no por `created_at` a propósito: TIMESTAMP no guarda
  * fracciones de segundo, así que dos mensajes del mismo segundo empatarían y
  * el orden del historial sería indeterminado.
  */
-export async function obtenerHistorial(conversationId, limite = 10, excluirId = null, conn = pool) {
+export async function obtenerHistorial(conversationId, limite = 10, anteriorA = null, conn = pool) {
   // Un límite inválido produciría `LIMIT NaN` y rompería la consulta entera.
   const tope = Math.max(1, Math.min(100, Math.trunc(Number(limite)) || 10))
 
   const [filas] = await conn.query(
     `SELECT direction, text FROM messages
      WHERE conversation_id = ? AND text IS NOT NULL AND text <> ''
-       AND (? IS NULL OR id <> ?)
+       AND (? IS NULL OR id < ?)
      ORDER BY id DESC
      LIMIT ?`,
-    [conversationId, excluirId, excluirId, tope]
+    [conversationId, anteriorA, anteriorA, tope]
   )
   return filas.reverse()
 }
