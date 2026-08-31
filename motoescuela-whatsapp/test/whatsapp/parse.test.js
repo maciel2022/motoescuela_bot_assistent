@@ -72,3 +72,12 @@ test('un timestamp ausente o invalido produce null, no una fecha imposible', () 
   const { mensajes } = parsearWebhook(armar('1756400000'))
   assert.equal(mensajes[0].timestamp.getTime(), 1756400000 * 1000)
 })
+
+test('un timestamp absurdamente grande produce null, no una fecha que la base rechaza', () => {
+  const armar = (timestamp) => ({
+    entry: [{ changes: [{ value: { messages: [{ from: '549223', id: 'wamid.X', type: 'text', text: { body: 'hola' }, timestamp }] } }] }],
+  })
+  // 99999999999 -> anio 5138, fuera de rango. El INSERT fallaria, el webhook
+  // devolveria 500 y Meta reintentaria ese mensaje indefinidamente.
+  assert.equal(parsearWebhook(armar('99999999999')).mensajes[0].timestamp, null)
+})

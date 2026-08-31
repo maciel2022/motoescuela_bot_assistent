@@ -127,3 +127,27 @@ test('obtenerHistorial acota un limite invalido en vez de romper la consulta', a
     assert.ok(Array.isArray(h), `fallo con limite=${limite}`)
   }
 })
+
+test('wa_message_id distingue mayusculas: dos wamid distintos no colisionan', async () => {
+  // Los wamid de Meta son base64, o sea case-sensitive. Con la colacion
+  // utf8mb4_unicode_ci heredada, el indice unico los tomaba como iguales y
+  // descartaba el segundo como duplicado: un mensaje legitimo perdido.
+  const a = await insertarEntrante(entrante('wamid.AbCd'))
+  const b = await insertarEntrante(entrante('wamid.abcd'))
+
+  assert.ok(a.id > 0)
+  assert.ok(b !== null, 'un wamid que solo difiere en mayusculas NO es un duplicado')
+
+  const [f] = await pool.query('SELECT COUNT(*) AS n FROM messages')
+  assert.equal(f[0].n, 2)
+})
+
+test('wa_timestamp acepta fechas posteriores a 2038', async () => {
+  // TIMESTAMP topeaba en 2038-01-19; DATETIME(3) no.
+  const r = await insertarEntrante({
+    ...entrante('wamid.FUTURO'),
+    waTimestamp: new Date('2050-06-15T10:00:00Z'),
+  })
+  const [f] = await pool.query('SELECT wa_timestamp FROM messages WHERE id = ?', [r.id])
+  assert.equal(f[0].wa_timestamp.getUTCFullYear(), 2050)
+})

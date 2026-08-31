@@ -170,3 +170,31 @@ test('GET /health responde ok', async () => {
   assert.equal(res.status, 200)
   assert.equal(res.body.status, 'ok')
 })
+
+test('GET /webhook rechaza un handshake sin challenge en vez de responder "undefined"', async () => {
+  const { app } = armarApp()
+  const res = await request(app).get('/webhook').query({
+    'hub.mode': 'subscribe',
+    'hub.verify_token': VERIFY_TOKEN,
+  })
+  assert.equal(res.status, 400)
+  assert.notEqual(res.text, 'undefined')
+})
+
+test('GET /webhook con challenge repetido no devuelve la lista concatenada', async () => {
+  const { app } = armarApp()
+  const res = await request(app)
+    .get('/webhook')
+    .query('hub.mode=subscribe&hub.verify_token=' + VERIFY_TOKEN + '&hub.challenge=a&hub.challenge=b')
+  assert.equal(res.status, 400)
+})
+
+test('el challenge se devuelve con nosniff', async () => {
+  const { app } = armarApp()
+  const res = await request(app).get('/webhook').query({
+    'hub.mode': 'subscribe', 'hub.verify_token': VERIFY_TOKEN, 'hub.challenge': '12345',
+  })
+  assert.equal(res.status, 200)
+  assert.equal(res.text, '12345')
+  assert.equal(res.headers['x-content-type-options'], 'nosniff')
+})

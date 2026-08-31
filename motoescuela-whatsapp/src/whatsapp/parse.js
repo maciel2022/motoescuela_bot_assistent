@@ -4,9 +4,14 @@
  * TIMESTAMP de MySQL: el INSERT fallaría, el webhook devolvería 500 y Meta
  * reintentaría ese mensaje indefinidamente. Preferimos null.
  */
+const SEGUNDOS_MAX = 4102444800 // 2100-01-01, muy por encima de cualquier real
+
 function instanteDe(valor) {
   const segundos = Number(valor)
-  if (!Number.isFinite(segundos) || segundos <= 0) return null
+  // La cota superior importa tanto como la inferior: un valor absurdo produce
+  // una fecha que la base rechaza, el INSERT falla, el webhook devuelve 500 y
+  // Meta reintenta ese mensaje indefinidamente.
+  if (!Number.isFinite(segundos) || segundos <= 0 || segundos > SEGUNDOS_MAX) return null
   return new Date(segundos * 1000)
 }
 

@@ -13,8 +13,19 @@ export function crearRouterWebhook({ verifyToken, appSecret, orquestador, alProc
     const challenge = req.query['hub.challenge']
 
     if (modo === 'subscribe' && token === verifyToken) {
+      // Sin esta validación, un handshake sin challenge devolvía 200 con el
+      // literal "undefined", y con el parámetro repetido devolvía "a,b".
+      if (typeof challenge !== 'string' || challenge === '') {
+        logger.warn('verificacion sin hub.challenge valido')
+        return res.sendStatus(400)
+      }
+
       logger.info('webhook verificado por Meta')
-      return res.status(200).type('text/plain').send(String(challenge))
+      return res
+        .status(200)
+        .type('text/plain')
+        .set('X-Content-Type-Options', 'nosniff')
+        .send(challenge)
     }
 
     logger.warn('verificacion de webhook rechazada', { modo })

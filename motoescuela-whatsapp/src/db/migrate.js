@@ -54,12 +54,38 @@ export async function migrar() {
   await conn.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       filename   VARCHAR(255) NOT NULL,
-      applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      started_at TIMESTAMP NULL,
+      applied_at TIMESTAMP NULL,
       PRIMARY KEY (filename)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `)
 
-  const [filas] = await conn.query('SELECT filename FROM schema_migrations')
+  // La tabla puede venir de una versión anterior sin started_at.
+  const [columnas] = await conn.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'schema_migrations'`,
+    [config.mysql.database]
+  )
+  if (!columnas.some((c) => c.COLUMN_NAME === 'started_at')) {
+    await conn.query('ALTER TABLE schema_migrations ADD COLUMN started_at TIMESTAMP NULL')
+  }
+
+  const [filas] = await conn.query('SELECT filename, applied_at FROM schema_migrations')
+
+  // Una migración registrada pero sin applied_at corrió a medias: el proceso
+  // murió entre el DDL y el registro. Reintentarla a ciegas falla para siempre
+  // con un error críptico (ER_DUP_FIELDNAME), y como server.js hace exit(1)
+  // la app queda muerta sin decir qué hacer.
+  const aMedias = filas.filter((f) => f.applied_at === null).map((f) => f.filename)
+  if (aMedias.length > 0) {
+    throw new Error(
+      `Estas migraciones quedaron a medias: ${aMedias.join(', ')}. ` +
+        `El proceso murió mientras corrían. Revisá el esquema a mano y, cuando esté ` +
+        `correcto, marcalas como aplicadas con: ` +
+        `UPDATE schema_migrations SET applied_at = NOW() WHERE filename = '${aMedias[0]}';`
+    )
+  }
+
   const yaAplicadas = new Set(filas.map((f) => f.filename))
 
   const archivos = readdirSync(DIR_MIGRACIONES).filter((f) => f.endsWith('.sql')).sort()
@@ -67,6 +93,12 @@ export async function migrar() {
 
   for (const archivo of archivos) {
     if (yaAplicadas.has(archivo)) continue
+
+    // Se registra ANTES de correr el DDL para poder distinguir después
+    // "nunca corrió" de "corrió a medias".
+    await conn.query('INSERT INTO schema_migrations (filename, started_at) VALUES (?, NOW())', [
+      archivo,
+    ])
 
     const sql = readFileSync(path.join(DIR_MIGRACIONES, archivo), 'utf8')
     const sentencias = sql
@@ -78,7 +110,9 @@ export async function migrar() {
       await conn.query(sentencia)
     }
 
-    await conn.query('INSERT INTO schema_migrations (filename) VALUES (?)', [archivo])
+    await conn.query('UPDATE schema_migrations SET applied_at = NOW() WHERE filename = ?', [
+      archivo,
+    ])
     aplicadas.push(archivo)
     logger.info('migracion aplicada', { archivo })
   }

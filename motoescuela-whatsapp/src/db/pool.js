@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise'
 import config from '../config.js'
+import logger from '../logger.js'
 
 /**
  * `timezone: 'Z'` solo le dice al DRIVER que serialice y parsee en UTC.
@@ -26,7 +27,18 @@ export function crearPool(opciones = {}) {
   })
 
   pool.pool.on('connection', (conn) => {
-    conn.query("SET time_zone = '+00:00'")
+    // El callback NO es opcional: una query sin callback que recibe un error
+    // del servidor emite 'error' sobre un objeto sin listener, lo que en
+    // mysql2 se convierte en uncaughtException y mata el proceso. Y si este
+    // SET fallara en silencio, la conexión quedaría en la zona local y los
+    // timestamps se guardarían corridos sin que nada avise.
+    conn.query("SET time_zone = '+00:00'", (err) => {
+      if (err) {
+        logger.error('no se pudo forzar UTC en la conexion', {
+          error: err?.message ?? String(err),
+        })
+      }
+    })
   })
 
   return pool
