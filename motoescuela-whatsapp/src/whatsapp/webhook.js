@@ -44,8 +44,21 @@ export function crearRouterWebhook({ verifyToken, appSecret, orquestador, alProc
 
     const { mensajes, estados } = parsearWebhook(payload)
 
-    for (const e of estados) {
-      logger.debug('estado de mensaje', { id: e.id, status: e.status })
+    if (estados.length > 0) {
+      logger.info('estados de mensajes', {
+        cantidad: estados.length,
+        estados: estados.map((e) => ({ id: e.id, status: e.status })),
+      })
+    }
+
+    if (mensajes.length > 0) {
+      // Sin esta línea, en el flujo feliz el único registro es el del final:
+      // si el procesamiento se cuelga, el log queda mudo y no se sabe si
+      // el mensaje llegó siquiera.
+      logger.info('mensajes recibidos', {
+        cantidad: mensajes.length,
+        waIds: mensajes.map((m) => m.waMessageId),
+      })
     }
 
     // Persistir ANTES del 200: son escrituras locales rápidas, y la
