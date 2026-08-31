@@ -48,25 +48,38 @@ export function crearRouterWebhook({ verifyToken, appSecret, orquestador, alProc
       logger.debug('estado de mensaje', { id: e.id, status: e.status })
     }
 
-    try {
-      // Persistir ANTES del 200: son escrituras locales rápidas, y la
-      // deduplicación tiene que ocurrir antes de confirmarle a Meta.
-      const contextos = []
-      for (const mensaje of mensajes) {
+    // Persistir ANTES del 200: son escrituras locales rápidas, y la
+    // deduplicación tiene que ocurrir antes de confirmarle a Meta.
+    //
+    // Cada mensaje se persiste por separado y con su propio try: si uno falla,
+    // los demás del lote igual se procesan. Antes, un fallo abandonaba el lote
+    // entero y los ya insertados quedaban huérfanos, porque el reintento de
+    // Meta los descartaba como duplicados.
+    const contextos = []
+    let huboFallo = false
+
+    for (const mensaje of mensajes) {
+      try {
         contextos.push(await orquestador.ingest(mensaje))
+      } catch (err) {
+        huboFallo = true
+        logger.error('fallo la persistencia de un mensaje', {
+          waMessageId: mensaje.waMessageId,
+          waId: mensaje.from,
+          error: err?.message ?? String(err),
+          stack: err?.stack,
+        })
       }
+    }
 
-      res.sendStatus(200)
+    // 500 a propósito si algo falló, para que Meta reintente ese mensaje.
+    // Los que sí se persistieron quedan deduplicados en el reintento, por eso
+    // se despachan igual acá abajo.
+    res.sendStatus(huboFallo ? 500 : 200)
 
-      // El trabajo lento (OpenAI + envío) va después del ACK.
-      for (const ctx of contextos) {
-        if (!ctx.duplicado) alProcesar(ctx)
-      }
-    } catch (err) {
-      // Base caída u otro fallo de persistencia: devolvemos 500 A PROPÓSITO
-      // para que Meta reintente y el mensaje no se pierda.
-      logger.error('fallo la persistencia del webhook', { error: err.message })
-      if (!res.headersSent) res.sendStatus(500)
+    // El trabajo lento (OpenAI + envío) va después de responder.
+    for (const ctx of contextos) {
+      if (!ctx.duplicado) alProcesar(ctx)
     }
   })
 

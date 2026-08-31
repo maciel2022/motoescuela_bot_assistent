@@ -1,10 +1,17 @@
 import pool from '../pool.js'
 
-async function buscarAbierta(contactId, conn) {
+/**
+ * `paraActualizar` agrega FOR UPDATE, que hace una lectura CON BLOQUEO.
+ * Importa dentro de una transacción: MySQL corre en REPEATABLE READ, así que
+ * una lectura común usa el snapshot del inicio de la transacción y NO vería la
+ * fila que otra transacción commiteó después. La lectura con bloqueo sí ve la
+ * última versión commiteada, que es lo que necesita la recuperación de abajo.
+ */
+async function buscarAbierta(contactId, conn, paraActualizar = false) {
   const [filas] = await conn.query(
     `SELECT id, contact_id, status FROM conversations
      WHERE contact_id = ? AND status = 'open'
-     ORDER BY id DESC LIMIT 1`,
+     ORDER BY id DESC LIMIT 1${paraActualizar ? ' FOR UPDATE' : ''}`,
     [contactId]
   )
   return filas[0] ?? null
@@ -31,8 +38,10 @@ export async function obtenerOCrearConversacion(contactId, conn = pool) {
   } catch (err) {
     if (err.code !== 'ER_DUP_ENTRY') throw err
 
-    // Otro proceso la creó entre nuestro SELECT y nuestro INSERT.
-    const ganadora = await buscarAbierta(contactId, conn)
+    // Otra transacción la creó entre nuestro SELECT y nuestro INSERT.
+    // FOR UPDATE es obligatorio acá: sin él, en REPEATABLE READ no veríamos
+    // la fila ganadora y devolveríamos null, rompiendo el ingest.
+    const ganadora = await buscarAbierta(contactId, conn, true)
     if (!ganadora) throw err
     return ganadora
   }

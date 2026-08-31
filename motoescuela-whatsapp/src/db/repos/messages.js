@@ -81,3 +81,42 @@ export async function marcarError(messageId, errorText, conn = pool) {
     messageId,
   ])
 }
+
+/**
+ * Mensajes entrantes que quedaron en 'received' y ya son viejos: nadie los
+ * procesó. Ocurre cuando el proceso muere entre el 200 OK a Meta y el
+ * procesamiento asíncrono. Sin este barrido quedarían ahí para siempre y el
+ * usuario nunca recibiría respuesta, sin ninguna señal para el operador.
+ *
+ * El corte por antigüedad evita agarrar mensajes que se están procesando ahora.
+ */
+export async function obtenerPendientes(antiguedadMinutos = 5, limite = 50, conn = pool) {
+  const minutos = Math.max(1, Math.trunc(Number(antiguedadMinutos)) || 5)
+  const tope = Math.max(1, Math.min(500, Math.trunc(Number(limite)) || 50))
+
+  const [filas] = await conn.query(
+    `SELECT m.id, m.conversation_id, m.contact_id, m.wa_message_id, m.type,
+            m.text, m.raw_payload, m.wa_timestamp, c.wa_id, c.profile_name
+       FROM messages m
+       JOIN contacts c ON c.id = m.contact_id
+      WHERE m.direction = 'in'
+        AND m.status = 'received'
+        AND m.created_at < NOW() - INTERVAL ? MINUTE
+      ORDER BY m.id
+      LIMIT ?`,
+    [minutos, tope]
+  )
+
+  return filas.map((f) => ({
+    messageId: f.id,
+    conversationId: f.conversation_id,
+    contactId: f.contact_id,
+    waMessageId: f.wa_message_id,
+    from: f.wa_id,
+    profileName: f.profile_name,
+    type: f.type,
+    text: f.text,
+    timestamp: f.wa_timestamp,
+    raw: f.raw_payload,
+  }))
+}
