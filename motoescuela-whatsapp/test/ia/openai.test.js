@@ -40,10 +40,10 @@ test('responder configura file_search con el vector store', async () => {
     { type: 'file_search', vector_store_ids: ['vs_test'] },
   ])
   assert.match(capturar.params.instructions, /MotoEscuela/)
-  assert.deepEqual(capturar.params.input, [
-    { role: 'user', content: 'previo' },
-    { role: 'user', content: 'hola' },
-  ])
+  assert.match(capturar.params.input[0].content, /previo/)
+  assert.equal(capturar.params.input.at(-2).role, 'developer')
+  assert.equal(capturar.params.input.at(-1).content, 'hola')
+  assert.ok(capturar.params.max_output_tokens > 0, 'debe acotar la salida')
 })
 
 test('responder extrae el texto de output[] si no viene output_text', async () => {

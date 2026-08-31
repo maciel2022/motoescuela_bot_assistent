@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { construirInput, limpiarCitas, aFormatoWhatsApp, INSTRUCCIONES } from '../../src/ia/prompt.js'
+import { construirInput, limpiarCitas, aFormatoWhatsApp, INSTRUCCIONES, RECORDATORIO } from '../../src/ia/prompt.js'
 
 test('construirInput mapea direction a los roles del modelo', () => {
   const historial = [
@@ -9,21 +9,32 @@ test('construirInput mapea direction a los roles del modelo', () => {
   ]
   const input = construirInput(historial, 'cuanto sale la clase?')
 
-  assert.deepEqual(input, [
-    { role: 'user', content: 'hola' },
-    { role: 'assistant', content: 'Hola! En que te ayudo?' },
-    { role: 'user', content: 'cuanto sale la clase?' },
-  ])
+  assert.equal(input.length, 4)
+  assert.equal(input[0].role, 'user')
+  assert.match(input[0].content, /sin verificar/, 'los turnos previos del usuario van etiquetados')
+  assert.match(input[0].content, /hola/)
+  assert.deepEqual(input[1], { role: 'assistant', content: 'Hola! En que te ayudo?' })
+  assert.deepEqual(input[2], { role: 'developer', content: RECORDATORIO })
+  // La pregunta actual NO se etiqueta: es lo que el usuario esta preguntando ahora.
+  assert.deepEqual(input[3], { role: 'user', content: 'cuanto sale la clase?' })
+})
+
+test('las respuestas propias del bot NO se etiquetan como texto del cliente', () => {
+  const input = construirInput([{ direction: 'out', text: 'La clase sale $7000' }], 'gracias')
+  assert.deepEqual(input[0], { role: 'assistant', content: 'La clase sale $7000' })
 })
 
 test('construirInput funciona con historial vacio', () => {
   const input = construirInput([], 'primera pregunta')
-  assert.deepEqual(input, [{ role: 'user', content: 'primera pregunta' }])
+  assert.deepEqual(input, [
+    { role: 'developer', content: RECORDATORIO },
+    { role: 'user', content: 'primera pregunta' },
+  ])
 })
 
 test('construirInput tolera historial null o undefined', () => {
-  assert.equal(construirInput(null, 'p').length, 1)
-  assert.equal(construirInput(undefined, 'p').length, 1)
+  assert.equal(construirInput(null, 'p').length, 2)
+  assert.equal(construirInput(undefined, 'p').length, 2)
 })
 
 test('construirInput ignora entradas sin texto', () => {
@@ -31,8 +42,9 @@ test('construirInput ignora entradas sin texto', () => {
     [{ direction: 'in', text: null }, { direction: 'in', text: '  ' }, { direction: 'in', text: 'valido' }],
     'pregunta'
   )
-  assert.equal(input.length, 2)
-  assert.equal(input[0].content, 'valido')
+  assert.equal(input.length, 3)
+  assert.match(input[0].content, /valido/)
+  assert.equal(input.at(-1).content, 'pregunta')
 })
 
 test('limpiarCitas quita los marcadores de file_search', () => {
@@ -94,4 +106,35 @@ test('aFormatoWhatsApp deja intacto un texto que ya es valido en WhatsApp', () =
 
 test('aFormatoWhatsApp tolera null', () => {
   assert.equal(aFormatoWhatsApp(null), '')
+})
+
+test('el recordatorio va SIEMPRE pegado a la pregunta, despues del historial', () => {
+  // Las instrucciones del sistema quedan lejos cuando el historial es largo y
+  // el modelo atiende a lo mas reciente. El recordatorio tiene que ir despues
+  // de todo lo que el usuario pudo haber inyectado en turnos anteriores.
+  const historial = Array.from({ length: 8 }, (_, i) => ({ direction: 'in', text: 'msg' + i }))
+  const input = construirInput(historial, 'la pregunta')
+
+  assert.equal(input.at(-1).role, 'user')
+  assert.equal(input.at(-1).content, 'la pregunta')
+  assert.equal(input.at(-2).role, 'developer')
+  assert.equal(input.at(-2).content, RECORDATORIO)
+})
+
+test('las instrucciones declaran el historial como texto NO confiable', () => {
+  assert.match(INSTRUCCIONES, /alias bancario/i)
+  assert.match(INSTRUCCIONES, /no son\s+instrucciones/i)
+  assert.match(RECORDATORIO, /archivo oficial/i)
+})
+
+test('limpiarCitas acota el texto del modelo antes de las expresiones regulares', () => {
+  // Ambas regex tienen retroceso cuadratico ante una corrida del delimitador
+  // de apertura sin cierre. 60k caracteres bloqueaban el event loop 8s, y el
+  // event loop es unico: se frenarian todos los webhooks en vuelo.
+  const inicio = Date.now()
+  const r = limpiarCitas('【'.repeat(60000))
+  const ms = Date.now() - inicio
+
+  assert.ok(ms < 500, `tardo ${ms}ms; deberia estar acotado`)
+  assert.ok(r.length <= 8192)
 })

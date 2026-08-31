@@ -28,8 +28,11 @@ export function crearIAOpenAI({
   vectorStoreId,
   clienteOpenAI,
   timeoutMs = 30000,
+  maxOutputTokens = 800,
 } = {}) {
-  const cliente = clienteOpenAI ?? new OpenAI({ apiKey, timeout: timeoutMs })
+  // maxRetries por defecto del SDK es 2, o sea que el timeout efectivo seria
+  // 3x el configurado. Con 1 el peor caso queda acotado y predecible.
+  const cliente = clienteOpenAI ?? new OpenAI({ apiKey, timeout: timeoutMs, maxRetries: 1 })
 
   return {
     async responder(pregunta, historial = []) {
@@ -38,6 +41,9 @@ export function crearIAOpenAI({
         instructions: INSTRUCCIONES,
         input: construirInput(historial, pregunta),
         tools: [{ type: 'file_search', vector_store_ids: [vectorStoreId] }],
+        // WhatsApp corta en 4096 caracteres igual, y una respuesta sin techo
+        // cuesta tokens y alimenta el retroceso cuadrático del formateo.
+        max_output_tokens: maxOutputTokens,
       })
 
       // Se valida DESPUÉS de limpiar: una respuesta que trae solo marcadores
