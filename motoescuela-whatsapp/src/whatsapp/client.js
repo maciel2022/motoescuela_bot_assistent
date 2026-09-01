@@ -19,6 +19,27 @@ export class ErrorPermanente extends Error {}
  */
 export class ErrorPosibleEntrega extends Error {}
 
+/**
+ * Quita el 9 de los celulares argentinos: 549 + area + numero -> 54 + area + numero.
+ *
+ * SOLO PARA EL NÚMERO DE PRUEBA. Meta guarda la lista de destinatarios
+ * autorizados en forma canónica sin el 9, pero los webhooks entrantes traen el
+ * wa_id CON el 9. Y valida contra la lista ANTES de normalizar, así que rechaza
+ * con (#131030) exactamente el mismo número que después convierte solo. No hay
+ * forma de arreglarlo desde el panel: agregar la variante con 9 se dedupea
+ * contra la entrada existente.
+ *
+ * En producción no hay lista de autorizados y esto no hace falta: por eso la
+ * opción viene APAGADA por defecto. Cuando el número real esté andando, se
+ * quita WHATSAPP_NORMALIZAR_AR del .env y esta función deja de usarse.
+ */
+export function normalizarDestinatarioAr(numero) {
+  const n = String(numero ?? '')
+  // 54 + 9 + 10 dígitos. El 9 solo se saca si queda un número de largo válido.
+  if (!/^549\d{10}$/.test(n)) return n
+  return '54' + n.slice(3)
+}
+
 /** Códigos de red que prueban que la request NUNCA salió: reintentar es seguro. */
 const CODIGOS_PREVIOS_AL_ENVIO = new Set([
   'ECONNREFUSED',
@@ -35,6 +56,7 @@ export function crearClienteWhatsApp({
   reintentos = 2,
   esperaBase = 500,
   timeoutMs = 10000,
+  normalizarAr = false,
 } = {}) {
   const url = `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`
 
@@ -124,10 +146,12 @@ export function crearClienteWhatsApp({
 
   return {
     async enviarTexto(to, texto) {
+      const destinatario = normalizarAr ? normalizarDestinatarioAr(to) : to
+
       const cuerpo = {
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
-        to,
+        to: destinatario,
         type: 'text',
         // Array.from corta por PUNTOS DE CÓDIGO. `.slice()` cuenta unidades
         // UTF-16 y partiría un emoji al medio, dejando un surrogate suelto que
@@ -162,4 +186,5 @@ export default crearClienteWhatsApp({
   token: config.whatsapp.token,
   phoneNumberId: config.whatsapp.phoneNumberId,
   graphVersion: config.whatsapp.graphVersion,
+  normalizarAr: config.whatsapp.normalizarAr,
 })

@@ -45,6 +45,8 @@ export function loadConfig(env) {
       token: env.WHATSAPP_TOKEN,
       phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID,
       graphVersion: env.GRAPH_API_VERSION ?? 'v21.0',
+      // Solo para el número de prueba de Meta. Ver normalizarDestinatarioAr().
+      normalizarAr: String(env.WHATSAPP_NORMALIZAR_AR ?? '').toLowerCase() === 'true',
     }),
     openai: Object.freeze({
       apiKey: env.OPENAI_API_KEY,
